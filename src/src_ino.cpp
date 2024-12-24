@@ -108,7 +108,9 @@ void Task1code(void *parameters);
 void readSbusCommands();
 void readIbusCommands();
 void readSumdCommands();
-void readPpmCommands();
+#if defined PPM_COMMUNICATION // PPM ----
+  void readPpmCommands();
+#endif
 void readPwmSignals();
 void processRawChannels();
 void failsafeRcSignals();
@@ -164,10 +166,10 @@ const uint8_t PWM_CHANNELS[PWM_CHANNELS_NUM] = {1, 2, 3, 4, 5, 6};   // Channel 
 const uint8_t PWM_PINS[PWM_CHANNELS_NUM] = {13, 12, 14, 27, 35, 34}; // Input pin numbers (pin 34 & 35 only usable as inputs!)
 
 // Output pins -----
-#define ESC_OUT_PIN 33 // connect crawler type ESC here. Not supported in TRACKED_MODE -----
+#define ESC_OUT_PIN 23 // connect crawler type ESC here. Not supported in TRACKED_MODE -----
 
-#define RZ7886_PIN1 33 // RZ7886 motor driver pin 1 (same as ESC_OUT_PIN)
-#define RZ7886_PIN2 32 // RZ7886 motor driver pin 2 (same as BRAKELIGHT_PIN)
+#define RZ7886_PIN1 23 // RZ7886 motor driver pin 1 (same as ESC_OUT_PIN)
+#define RZ7886_PIN2 22 // RZ7886 motor driver pin 2 (same as BRAKELIGHT_PIN)
 
 #define STEERING_PIN 13 // CH1 output for steering servo (bus communication only)
 #define SHIFTING_PIN 12 // CH2 output for shifting servo (bus communication only)
@@ -180,7 +182,7 @@ const uint8_t PWM_PINS[PWM_CHANNELS_NUM] = {13, 12, 14, 27, 35, 34}; // Input pi
 #define NO_CABLIGHTS
 #else
 #define HEADLIGHT_PIN 3 // Headlights connected to GPIO 3
-#define CABLIGHT_PIN 22 // Cabin lights connected to GPIO 22
+#define CABLIGHT_PIN 32 // Cabin lights connected to GPIO 32
 #endif
 
 #define TAILLIGHT_PIN 15       // Red tail- & brake-lights (combined)
@@ -201,7 +203,7 @@ const uint8_t PWM_PINS[PWM_CHANNELS_NUM] = {13, 12, 14, 27, 35, 34}; // Input pi
 #define COUPLER_SWITCH_PIN 32 // switch for trailer coupler sound
 #endif
 
-#define SHAKER_MOTOR_PIN 23 // Shaker motor (shaking truck while idling and engine start / stop)
+#define SHAKER_MOTOR_PIN 33 // Shaker motor (shaking truck while idling and engine start / stop)
 
 #define DAC1 25 // connect pin25 (do not change the pin) to a 10kOhm resistor
 #define DAC2 26 // connect pin26 (do not change the pin) to a 10kOhm resistor
@@ -335,7 +337,25 @@ uint32_t maxIbusRpmPercentage = 320; // Limit required to prevent controller fro
 volatile boolean couplerSwitchInteruptLatch; // this is enabled, if the coupler switch pin change interrupt is detected
 
 // Control input signals
-#define PULSE_ARRAY_SIZE 14                // 13 channels (+ the unused CH0)
+// Enums to index pulseWiths.
+typedef enum pulsewith_index
+{
+  STEERING = 1, // It is one indexed ??
+  GEARBOX,
+  THROTTLE,
+  HORN,
+  FUNCTION_R,
+  FUNCTION_L,
+  POT2,
+  MODE1,
+  MODE2,
+  MOMENTARY1,
+  HAZARDS,
+  INDICATOR_LEFT,
+  INDICATOR_RIGHT,
+  PULSE_ARRAY_SIZE
+} pulsewith_index_t;
+
 uint16_t pulseWidthRaw[PULSE_ARRAY_SIZE];  // Current RC signal RAW pulse width [X] = channel number
 uint16_t pulseWidthRaw2[PULSE_ARRAY_SIZE]; // Current RC signal RAW pulse width with linearity compensation [X] = channel number
 uint16_t pulseWidthRaw3[PULSE_ARRAY_SIZE]; // Current RC signal RAW pulse width before averaging [X] = channel number
@@ -492,6 +512,7 @@ float batteryVoltage;
 uint8_t numberOfCells;
 bool batteryProtection = false;
 
+#if defined ENABLE_TRAILER_CONTROL
 // ESP NOW variables for wireless trailer communication ----------------------------
 #if defined ENABLE_WIRELESS
 
@@ -516,6 +537,7 @@ typedef struct struct_message
 // Create a struct_message called trailerData
 struct_message trailerData;
 #endif // --------------------------------------------------------------------------
+#endif // defined ENABLE_TRAILER_CONTROL
 
 // The following variables are buffered in the eeprom an can be modified, using the web interface -----
 // 5th wheel switch enable / disable
@@ -734,7 +756,8 @@ void IRAM_ATTR variablePlaybackTimer()
 
       curEngineSample = 0;
       curRevSample = 0;
-#endif
+#endif // JAKE_BRAKE_SOUND
+
     }
 
     // Engine sound mixer ----
@@ -1412,7 +1435,7 @@ static void IRAM_ATTR rmt_isr_handler(void *arg)
 // PPM SIGNAL READ INTERRUPT
 // =======================================================================================================
 //
-
+#if defined PPM_COMMUNICATION // PPM ----
 void IRAM_ATTR readPpm()
 {
   unsigned long timenew = micros();
@@ -1444,19 +1467,20 @@ void IRAM_ATTR readPpm()
     }
   }
 }
+#endif // PPM_COMMUNICATION // PPM ----
 
 //
 // =======================================================================================================
 // TRAILER PRESENCE SWITCH INTERRUPT (not usable with third brake light or RZ7886 motor driver)
 // =======================================================================================================
 //
+#if defined ENABLE_TRAILER_CONTROL
 #if not defined THIRD_BRAKELIGHT and not defined RZ7886_DRIVER_MODE
 void IRAM_ATTR trailerPresenceSwitchInterrupt()
 {
   couplerSwitchInteruptLatch = true;
 }
 #endif
-
 //
 // =======================================================================================================
 // ESP NOW TRAILER DATA SENT CALLBACK
@@ -1483,6 +1507,7 @@ void IRAM_ATTR onTrailerDataSent(const uint8_t *mac_addr, esp_now_send_status_t 
 
 #endif
 }
+#endif // ENABLE_TRAILER_CONTROL
 
 //
 // =======================================================================================================
@@ -1597,6 +1622,7 @@ void setupEspNow()
 
   server.begin(); // Start Webserver
 
+#if defined ENABLE_TRAILER_CONTROL
   // Init ESP-NOW
   if (esp_now_init() != ESP_OK)
   {
@@ -1647,6 +1673,7 @@ void setupEspNow()
       return;
     }
   }
+#endif // ENABLE_TRAILER_CONTROL
 #else
   Serial.printf("ENABLE_WIRELESS option disabled, no WiFi configuration or ESP-Now Trailer!\n");
 #endif // ENABLE_WIRELESS
@@ -2022,14 +2049,21 @@ void setup()
   }
 
   // ESC output range calibration
-  escPulseMaxNeutral = pulseZero[3] + escTakeoffPunch; // Additional takeoff punch around zero
-  escPulseMinNeutral = pulseZero[3] - escTakeoffPunch;
+  escPulseMaxNeutral = pulseZero[ THROTTLE ] + escTakeoffPunch; // Additional takeoff punch around zero
+  escPulseMinNeutral = pulseZero[ THROTTLE ] - escTakeoffPunch;
 
-  escPulseMax = pulseZero[3] + escPulseSpan;
-  escPulseMin = pulseZero[3] - escPulseSpan + escReversePlus; // Additional power for ESC with slow reverse
+  escPulseMax = pulseZero[ THROTTLE ] + escPulseSpan;
+  escPulseMin = pulseZero[ THROTTLE ] - escPulseSpan + escReversePlus; // Additional power for ESC with slow reverse
 
   // ESC setup
   setupMcpwmESC(); // ESC now using mpcpwm
+
+#ifdef EXPONENTIAL_THROTTLE
+  Serial.printf("EXPONENTIAL_THROTTLE mode enabled\n");
+#endif // --------------------------------------------------
+#ifdef EXPONENTIAL_STEERING
+  Serial.printf("EXPONENTIAL_STEERING mode enabled\n");
+#endif
 }
 
 //
@@ -2073,7 +2107,7 @@ void readPwmSignals()
     // "static void IRAM_ATTR rmt_isr_handler(void* arg)" interrupt function
 
     // NOTE: There is no channel mapping in this mode! Just plug in the wires in the order as defined in "2_adjustmentsRemote.h"
-    // for example: sound controller channel 2 (GEARBOX) connects to receiver channel 6
+    // for example: sound controller channel 2 (CH_GEARBOX) connects to receiver channel 6
 
     // See if we can obtain or "Take" the Semaphore.
     // If the semaphore is not available, wait 1 ticks of the Scheduler to see if it becomes free.
@@ -2095,7 +2129,7 @@ void readPwmSignals()
     processRawChannels();
 
     // Failsafe for RC signals
-    failSafe = (pulseWidthRaw[3] < 500 || pulseWidthRaw[3] > 2500);
+    failSafe = (pulseWidthRaw[ THROTTLE ] < 500 || pulseWidthRaw[ THROTTLE ] > 2500);
     failsafeRcSignals();
 
     lastFrameTime = millis();
@@ -2112,27 +2146,29 @@ void readPwmSignals()
 // =======================================================================================================
 //
 
+#if defined PPM_COMMUNICATION // PPM ----
 void readPpmCommands()
 {
 
   // NOTE: 8 channels is the maximum of this protocol!
 
-  pulseWidthRaw[1] = ppmBuf[STEERING - 1];   // CH1 steering
-  pulseWidthRaw[2] = ppmBuf[GEARBOX - 1];    // CH2 3 position switch for gearbox (left throttle in tracked mode)
-  pulseWidthRaw[3] = ppmBuf[THROTTLE - 1];   // CH3 throttle & brake
-  pulseWidthRaw[4] = ppmBuf[HORN - 1];       // CH5 jake brake, high / low beam, headlight flasher, engine on / off
-  pulseWidthRaw[5] = ppmBuf[FUNCTION_R - 1]; // CH5 jake brake, high / low beam, headlight flasher, engine on / off
-  pulseWidthRaw[6] = ppmBuf[FUNCTION_L - 1]; // CH6 indicators, hazards
-  pulseWidthRaw[7] = ppmBuf[POT2 - 1];       // CH7 pot 2
-  pulseWidthRaw[8] = ppmBuf[MODE1 - 1];      // CH8 mode 1 switch
+  pulseWidthRaw[ STEERING ] = ppmBuf[CH_STEERING - 1];   // CH1 steering
+  pulseWidthRaw[ GEARBOX ] = ppmBuf[CH_GEARBOX - 1];    // CH2 3 position switch for gearbox (left throttle in tracked mode)
+  pulseWidthRaw[ THROTTLE ] = ppmBuf[CH_THROTTLE - 1];   // CH3 throttle & brake
+  pulseWidthRaw[4] = ppmBuf[CH_HORN - 1];       // CH5 jake brake, high / low beam, headlight flasher, engine on / off
+  pulseWidthRaw[5] = ppmBuf[CH_FUNCTION_R - 1]; // CH5 jake brake, high / low beam, headlight flasher, engine on / off
+  pulseWidthRaw[6] = ppmBuf[CH_FUNCTION_L - 1]; // CH6 indicators, hazards
+  pulseWidthRaw[7] = ppmBuf[CH_POT2 - 1];       // CH7 pot 2
+  pulseWidthRaw[8] = ppmBuf[CH_MODE1 - 1];      // CH8 mode 1 switch
 
   // Normalize, auto zero and reverse channels
   processRawChannels();
 
   // Failsafe for RC signals
-  failSafe = (pulseWidthRaw[3] < 500 || pulseWidthRaw[3] > 2500);
+  failSafe = (pulseWidthRaw[ THROTTLE ] < 500 || pulseWidthRaw[ THROTTLE ] > 2500);
   failsafeRcSignals();
 }
+#endif // PPM_COMMUNICATION // PPM ----
 
 //
 // =======================================================================================================
@@ -2179,19 +2215,19 @@ void readSbusCommands()
 #if defined EMBEDDED_SBUS // ----------------------------
     SBUSchannels = sBus.ch();
 #endif                                                                                 // -----------------------------------------------
-    pulseWidthRaw[1] = map(SBUSchannels[STEERING - 1], 172, 1811, 1000, 2000);         // CH1 steering
-    pulseWidthRaw[2] = map(SBUSchannels[GEARBOX - 1], 172, 1811, 1000, 2000);          // CH2 3 position switch for gearbox (left throttle in tracked mode)
-    pulseWidthRaw[3] = map(SBUSchannels[THROTTLE - 1], 172, 1811, 1000, 2000);         // CH3 throttle & brake
-    pulseWidthRaw[4] = map(SBUSchannels[HORN - 1], 172, 1811, 1000, 2000);             // CH5 jake brake, high / low beam, headlight flasher, engine on / off
-    pulseWidthRaw[5] = map(SBUSchannels[FUNCTION_R - 1], 172, 1811, 1000, 2000);       // CH5 jake brake, high / low beam, headlight flasher, engine on / off
-    pulseWidthRaw[6] = map(SBUSchannels[FUNCTION_L - 1], 172, 1811, 1000, 2000);       // CH6 indicators, hazards
-    pulseWidthRaw[7] = map(SBUSchannels[POT2 - 1], 172, 1811, 1000, 2000);             // CH7 pot 2
-    pulseWidthRaw[8] = map(SBUSchannels[MODE1 - 1], 172, 1811, 1000, 2000);            // CH8 mode 1 switch
-    pulseWidthRaw[9] = map(SBUSchannels[MODE2 - 1], 172, 1811, 1000, 2000);            // CH9 mode 2 switch
-    pulseWidthRaw[10] = map(SBUSchannels[MOMENTARY1 - 1], 172, 1811, 1000, 2000);      // CH10
-    pulseWidthRaw[11] = map(SBUSchannels[HAZARDS - 1], 172, 1811, 1000, 2000);         // CH11
-    pulseWidthRaw[12] = map(SBUSchannels[INDICATOR_LEFT - 1], 172, 1811, 1000, 2000);  // CH12
-    pulseWidthRaw[13] = map(SBUSchannels[INDICATOR_RIGHT - 1], 172, 1811, 1000, 2000); // CH13
+    pulseWidthRaw[ STEERING ] = map(SBUSchannels[CH_STEERING - 1], 172, 1811, 1000, 2000);         // CH1 steering
+    pulseWidthRaw[ GEARBOX ] = map(SBUSchannels[CH_GEARBOX - 1], 172, 1811, 1000, 2000);          // CH2 3 position switch for gearbox (left throttle in tracked mode)
+    pulseWidthRaw[ THROTTLE ] = map(SBUSchannels[CH_THROTTLE - 1], 172, 1811, 1000, 2000);         // CH3 throttle & brake
+    pulseWidthRaw[4] = map(SBUSchannels[CH_HORN - 1], 172, 1811, 1000, 2000);             // CH5 jake brake, high / low beam, headlight flasher, engine on / off
+    pulseWidthRaw[5] = map(SBUSchannels[CH_FUNCTION_R - 1], 172, 1811, 1000, 2000);       // CH5 jake brake, high / low beam, headlight flasher, engine on / off
+    pulseWidthRaw[6] = map(SBUSchannels[CH_FUNCTION_L - 1], 172, 1811, 1000, 2000);       // CH6 indicators, hazards
+    pulseWidthRaw[7] = map(SBUSchannels[CH_POT2 - 1], 172, 1811, 1000, 2000);             // CH7 pot 2
+    pulseWidthRaw[8] = map(SBUSchannels[CH_MODE1 - 1], 172, 1811, 1000, 2000);            // CH8 mode 1 switch
+    pulseWidthRaw[9] = map(SBUSchannels[CH_MODE2 - 1], 172, 1811, 1000, 2000);            // CH9 mode 2 switch
+    pulseWidthRaw[10] = map(SBUSchannels[CH_MOMENTARY1 - 1], 172, 1811, 1000, 2000);      // CH10
+    pulseWidthRaw[11] = map(SBUSchannels[CH_HAZARDS - 1], 172, 1811, 1000, 2000);         // CH11
+    pulseWidthRaw[12] = map(SBUSchannels[CH_INDICATOR_LEFT - 1], 172, 1811, 1000, 2000);  // CH12
+    pulseWidthRaw[13] = map(SBUSchannels[CH_INDICATOR_RIGHT - 1], 172, 1811, 1000, 2000); // CH13
   }
 
   if (sbusInit)
@@ -2239,22 +2275,22 @@ void readIbusCommands()
   loopIbus();
 
   // NOTE: The channel mapping is in the order as defined in "channelsetup.h"
-  // for example: sound controller channel 2 (GEARBOX) connects to receiver channel 6
+  // for example: sound controller channel 2 (CH_GEARBOX) connects to receiver channel 6
 
   // Proportional channels (in Microseconds)
-  pulseWidthRaw[1] = iBus.readChannel(STEERING - 1);         // CH1 steering
-  pulseWidthRaw[2] = iBus.readChannel(GEARBOX - 1);          // CH2 3 position switch for gearbox (left throttle in tracked mode)
-  pulseWidthRaw[3] = iBus.readChannel(THROTTLE - 1);         // CH3 throttle & brake
-  pulseWidthRaw[4] = iBus.readChannel(HORN - 1);             // CH5 jake brake, high / low beam, headlight flasher, engine on / off
-  pulseWidthRaw[5] = iBus.readChannel(FUNCTION_R - 1);       // CH5 jake brake, high / low beam, headlight flasher, engine on / off
-  pulseWidthRaw[6] = iBus.readChannel(FUNCTION_L - 1);       // CH6 indicators, hazards
-  pulseWidthRaw[7] = iBus.readChannel(POT2 - 1);             // CH7 pot 2
-  pulseWidthRaw[8] = iBus.readChannel(MODE1 - 1);            // CH8 mode 1 switch
-  pulseWidthRaw[9] = iBus.readChannel(MODE2 - 1);            // CH9 mode 2 switch
-  pulseWidthRaw[10] = iBus.readChannel(MOMENTARY1 - 1);      // CH10
-  pulseWidthRaw[11] = iBus.readChannel(HAZARDS - 1);         // CH11
-  pulseWidthRaw[12] = iBus.readChannel(INDICATOR_LEFT - 1);  // CH12
-  pulseWidthRaw[13] = iBus.readChannel(INDICATOR_RIGHT - 1); // CH13
+  pulseWidthRaw[ STEERING ] = iBus.readChannel(CH_STEERING - 1);         // CH1 steering
+  pulseWidthRaw[ GEARBOX ] = iBus.readChannel(CH_GEARBOX - 1);          // CH2 3 position switch for gearbox (left throttle in tracked mode)
+  pulseWidthRaw[ THROTTLE ] = iBus.readChannel(CH_THROTTLE - 1);         // CH3 throttle & brake
+  pulseWidthRaw[4] = iBus.readChannel(CH_HORN - 1);             // CH5 jake brake, high / low beam, headlight flasher, engine on / off
+  pulseWidthRaw[5] = iBus.readChannel(CH_FUNCTION_R - 1);       // CH5 jake brake, high / low beam, headlight flasher, engine on / off
+  pulseWidthRaw[6] = iBus.readChannel(CH_FUNCTION_L - 1);       // CH6 indicators, hazards
+  pulseWidthRaw[7] = iBus.readChannel(CH_POT2 - 1);             // CH7 pot 2
+  pulseWidthRaw[8] = iBus.readChannel(CH_MODE1 - 1);            // CH8 mode 1 switch
+  pulseWidthRaw[9] = iBus.readChannel(CH_MODE2 - 1);            // CH9 mode 2 switch
+  pulseWidthRaw[10] = iBus.readChannel(CH_MOMENTARY1 - 1);      // CH10
+  pulseWidthRaw[11] = iBus.readChannel(CH_HAZARDS - 1);         // CH11
+  pulseWidthRaw[12] = iBus.readChannel(CH_INDICATOR_LEFT - 1);  // CH12
+  pulseWidthRaw[13] = iBus.readChannel(CH_INDICATOR_RIGHT - 1); // CH13
 
   if (ibusInit)
   {
@@ -2280,17 +2316,17 @@ void readSumdCommands()
   }
 
   // Proportional channels (in Microseconds)
-  pulseWidthRaw[1] = map(SUMDchannels[STEERING - 1], 1100, 1900, 1000, 2000);    // CH1 steering
-  pulseWidthRaw[2] = map(SUMDchannels[GEARBOX - 1], 1100, 1900, 1000, 2000);     // CH2 3 position switch for gearbox (left throttle in tracked mode)
-  pulseWidthRaw[3] = map(SUMDchannels[THROTTLE - 1], 1100, 1900, 1000, 2000);    // CH3 throttle & brake
-  pulseWidthRaw[4] = map(SUMDchannels[HORN - 1], 1100, 1900, 1000, 2000);        // CH5 jake brake, high / low beam, headlight flasher, engine on / off
-  pulseWidthRaw[5] = map(SUMDchannels[FUNCTION_R - 1], 1100, 1900, 1000, 2000);  // CH5 jake brake, high / low beam, headlight flasher, engine on / off
-  pulseWidthRaw[6] = map(SUMDchannels[FUNCTION_L - 1], 1100, 1900, 1000, 2000);  // CH6 indicators, hazards
-  pulseWidthRaw[7] = map(SUMDchannels[POT2 - 1], 1100, 1900, 1000, 2000);        // CH7 pot 2
-  pulseWidthRaw[8] = map(SUMDchannels[MODE1 - 1], 1100, 1900, 1000, 2000);       // CH8 mode 1 switch
-  pulseWidthRaw[9] = map(SUMDchannels[MODE2 - 1], 1100, 1900, 1000, 2000);       // CH9 mode 2 switch
-  pulseWidthRaw[10] = map(SUMDchannels[MOMENTARY1 - 1], 1100, 1900, 1000, 2000); // CH10
-  pulseWidthRaw[11] = map(SUMDchannels[HAZARDS - 1], 1100, 1900, 1000, 2000);    // CH11
+  pulseWidthRaw[ STEERING ] = map(SUMDchannels[CH_STEERING - 1], 1100, 1900, 1000, 2000);    // CH1 steering
+  pulseWidthRaw[ GEARBOX ] = map(SUMDchannels[CH_GEARBOX - 1], 1100, 1900, 1000, 2000);     // CH2 3 position switch for gearbox (left throttle in tracked mode)
+  pulseWidthRaw[ THROTTLE ] = map(SUMDchannels[CH_THROTTLE - 1], 1100, 1900, 1000, 2000);    // CH3 throttle & brake
+  pulseWidthRaw[4] = map(SUMDchannels[CH_HORN - 1], 1100, 1900, 1000, 2000);        // CH5 jake brake, high / low beam, headlight flasher, engine on / off
+  pulseWidthRaw[5] = map(SUMDchannels[CH_FUNCTION_R - 1], 1100, 1900, 1000, 2000);  // CH5 jake brake, high / low beam, headlight flasher, engine on / off
+  pulseWidthRaw[6] = map(SUMDchannels[CH_FUNCTION_L - 1], 1100, 1900, 1000, 2000);  // CH6 indicators, hazards
+  pulseWidthRaw[7] = map(SUMDchannels[CH_POT2 - 1], 1100, 1900, 1000, 2000);        // CH7 pot 2
+  pulseWidthRaw[8] = map(SUMDchannels[CH_MODE1 - 1], 1100, 1900, 1000, 2000);       // CH8 mode 1 switch
+  pulseWidthRaw[9] = map(SUMDchannels[CH_MODE2 - 1], 1100, 1900, 1000, 2000);       // CH9 mode 2 switch
+  pulseWidthRaw[10] = map(SUMDchannels[CH_MOMENTARY1 - 1], 1100, 1900, 1000, 2000); // CH10
+  pulseWidthRaw[11] = map(SUMDchannels[CH_HAZARDS - 1], 1100, 1900, 1000, 2000);    // CH11
 
   // Failsafe triggering
   if (SUMD_failsafe)
@@ -2313,25 +2349,223 @@ void readSumdCommands()
 
 //
 // =======================================================================================================
+// ROBOT CONTROL (Demo/Shop mode)
+// =======================================================================================================
+//
+class Robot
+{
+  public:
+    void tick(void)
+    {
+      switch (++this->state)
+      {
+      case 0:
+        this->SlowAhead();
+        break;
+      case 1:
+        this->Park();
+        break;
+      case 2:
+        this->ModerateAhead();
+        break;
+      case 3:
+        this->ModerateAhead();
+        break;
+      case 4:
+        this->Park();
+        break;
+      case 5:
+        this->Park();
+        break;
+      case 6:
+        this->FullAhead();
+        break;
+      case 7:
+        this->FullAhead();
+        break;
+      case 8:
+        this->Park();
+        break;
+      case 9:
+        this->Park();
+        break;
+      case 10:
+        this->Park();
+        break;
+      case 11:
+        this->FullReverse();
+        break;
+      case 12:
+        this->FullReverse();
+        break;
+      case 13:
+        this->FullAhead();
+        break;
+      case 14:
+        this->FullAhead();
+        break;
+      case 15:
+        this->Park();
+        break;
+      case 16:
+        this->Park();
+        break;
+      case 17:
+        this->Park();
+        break;
+      case 18:
+        this->FullReverse();
+        break;
+      case 19:
+        this->FullReverse();
+        break;
+      case 20:
+        this->Park();
+        break;
+      case 21:
+        this->Park();
+        break;
+      case 22:
+        this->Park();
+        break;
+      case 23:
+        this->FullAhead();
+        break;
+      case 24:
+        this->ModerateAhead();
+        break;
+      case 25:
+        this->FullAhead();
+        break;
+      case 26:
+        this->Park();
+        break;
+      case 27:
+        this->Park();
+        break;
+      
+      default:
+        // The catch all, asume we ran out of states so park and reset state.
+        this->Park();
+        this->state = -1;
+        break;
+      } 
+    }
+    
+    void tick_futfut(void)
+    {
+      switch (state)
+      {
+      case 0:
+        this->ModerateAhead();
+        state = 1;
+        break;
+      case 1:
+        this->FullAhead();
+        state=0;
+        break;
+      
+      default:
+        // The catch all, asume we ran out of states so park and reset state.
+        this->Park();
+        state = 0;
+        break;
+      } 
+    }
+    int_fast8_t state = -1;
+
+    void tick_step(void)
+    {
+      if( isStepUp )
+      {
+        stepSpeed += 100;
+        if( stepSpeed >= 2000 )
+        {
+          stepSpeed = 1999;
+          isStepUp = false;
+        }
+      }
+      else
+      {
+        stepSpeed -= 100;
+        if( stepSpeed <= 1000 )
+        {
+          stepSpeed = 1001;
+          isStepUp = true;
+        }
+      }
+      pulseWidthRaw[ THROTTLE ] = stepSpeed;
+    }
+
+    int_fast16_t stepSpeed = 0;
+    bool isStepUp = true;
+
+  private:
+    void Park()
+    {
+        pulseWidthRaw[ THROTTLE ] = 1500;
+    }
+    void SlowAhead()
+    {
+        pulseWidthRaw[ THROTTLE ] = 1550;
+    }
+    void ModerateAhead()
+    {
+        pulseWidthRaw[ THROTTLE ] = 1750;
+    }
+    void FullAhead()
+    {
+        pulseWidthRaw[ THROTTLE ] = 1999;
+    }
+    void SlowReverse()
+    {
+        pulseWidthRaw[ THROTTLE ] = 1450;
+    }
+    void ModerateReverse()
+    {
+        pulseWidthRaw[ THROTTLE ] = 1250;
+    }
+    void FullReverse()
+    {
+        pulseWidthRaw[ THROTTLE ] = 1001;
+    }
+
+};
+
+auto robot = Robot();
+
+void readRobotCommands( void )
+{
+  static uint32_t lastFrameTime = millis();
+  if (millis() - lastFrameTime > 10000)
+  {
+    lastFrameTime = millis();
+    // robot.tick();
+    // robot.tick_step();
+    robot.tick_futfut();
+
+    processRawChannels();
+  }
+}
+
+//
+// =======================================================================================================
 // PROCESS CHANNELS (Normalize, auto zero and reverse)
 // =======================================================================================================
 //
-
 void processRawChannels()
 {
 
   static unsigned long lastOutOfRangeMillis;
   static int channel;
-  static bool exThrottlePrint;
-  static bool exSteeringPrint;
 
 #ifdef TRACKED_MODE // If tracked mode: enable CH2 auto zero adjustment as well, if it is enabled for CH3
-  if (channelAutoZero[3])
-    channelAutoZero[2] = true;
+  if (channelAutoZero[ THROTTLE ])
+    channelAutoZero[ GEARBOX ] = true;
 #endif
 
 #ifdef AIRPLANE_MODE // If airplane mode: always disable CH3 auto zero adjustment
-  channelAutoZero[3] = false;
+  channelAutoZero[ THROTTLE ] = false;
 #endif
 
   if (millis() - lastOutOfRangeMillis > 500)
@@ -2352,11 +2586,6 @@ void processRawChannels()
 
       // Exponential throttle compensation ------------------
 #ifdef EXPONENTIAL_THROTTLE
-      if (!exThrottlePrint)
-      {
-        Serial.printf("EXPONENTIAL_THROTTLE mode enabled\n");
-        exThrottlePrint = true;
-      }
       if (i == 3)
       { // Throttle CH only
         pulseWidthRaw2[i] = reMap(curveExponentialThrottle, pulseWidthRaw[i]);
@@ -2371,11 +2600,6 @@ void processRawChannels()
 
       // Exponential steering compensation ------------------
 #ifdef EXPONENTIAL_STEERING
-      if (!exSteeringPrint)
-      {
-        Serial.printf("EXPONENTIAL_STEERING mode enabled\n");
-        exSteeringPrint = true;
-      }
       if (i == 1)
       { // Throttle CH only
         pulseWidthRaw2[i] = reMap(curveExponentialThrottle, pulseWidthRaw[i]);
@@ -2470,21 +2694,21 @@ void processRawChannels()
     printChannelMillis = millis();
 
     Serial.printf("CHANNEL_DEBUG:\n");
-    for (uint8_t channelNum = 1; channelNum < PULSE_ARRAY_SIZE; channelNum++)
-    {
-      Serial.printf(" CH%i: %i µs\n", channelNum, pulseWidth[channelNum]);
-    }
+    // for (uint8_t channelNum = 1; channelNum < PULSE_ARRAY_SIZE; channelNum++)
+    // {
+    //   Serial.printf(" CH%i: %i µs\n", channelNum, pulseWidth[channelNum]);
+    // }
     Serial.printf("Throttle: %i/%i\n", currentThrottle, maxRpm);
     Serial.printf("States:\n");
-    Serial.printf(" MODE1:            %s\n", mode1 ? "true" : "false");
-    Serial.printf(" MODE2:            %s\n", mode2 ? "true" : "false");
+    // Serial.printf(" MODE1:            %s\n", mode1 ? "true" : "false");
+    // Serial.printf(" MODE2:            %s\n", mode2 ? "true" : "false");
     Serial.printf(" MOMENTARY1:       %s\n", momentary1 ? "true" : "false");
-    Serial.printf(" HAZARDS:          %s\n", hazard ? "true" : "false");
-    Serial.printf(" INDICATOR_LEFT:   %s\n", indicatorLon ? "true" : "false");
-    Serial.printf(" INDICATOR_RIGHT:  %s\n", indicatorRon ? "true" : "false");
+    // Serial.printf(" HAZARDS:          %s\n", hazard ? "true" : "false");
+    // Serial.printf(" INDICATOR_LEFT:   %s\n", indicatorLon ? "true" : "false");
+    // Serial.printf(" INDICATOR_RIGHT:  %s\n", indicatorRon ? "true" : "false");
 #if not defined EMBEDDED_SBUS // ------------------------
-    Serial.printf(" SBUS Failsafe:    %s\n", SBUSfailSafe ? "true" : "false");
-    Serial.printf(" SBUS Lost frames: %s\n", SBUSlostFrame ? "true" : "false");
+    // Serial.printf(" SBUS Failsafe:    %s\n", SBUSfailSafe ? "true" : "false");
+    // Serial.printf(" SBUS Lost frames: %s\n", SBUSlostFrame ? "true" : "false");
 #endif // -----------------------------------------------
     Serial.printf(" Failsafe state:   %s\n", failSafe ? "true" : "false");
     Serial.printf("Misc:\n");
@@ -2597,10 +2821,10 @@ void mcpwmOutput()
       steeringDeviation = constrain(steeringDeviation, 1, 10);
       steeringDelayMicros = micros();
 
-      if (pulseWidth[1] < 1500)
-        steeringServoMicros = map(pulseWidth[1], 1000, 1500, CH1L, CH1C);
-      else if (pulseWidth[1] > 1500)
-        steeringServoMicros = map(pulseWidth[1], 1500, 2000, CH1C, CH1R);
+      if (pulseWidth[ STEERING ] < 1500)
+        steeringServoMicros = map(pulseWidth[ STEERING ], 1000, 1500, CH1L, CH1C);
+      else if (pulseWidth[ STEERING ] > 1500)
+        steeringServoMicros = map(pulseWidth[ STEERING ], 1500, 2000, CH1C, CH1R);
       else
         steeringServoMicros = CH1C;
       if (steeringServoMicrosDelayed < steeringServoMicros)
@@ -2680,7 +2904,6 @@ void mcpwmOutput()
     }
 
     // Switching modes
-    static uint16_t beaconServoMicros;
     static bool lockRotating, lockOff;
     if (blueLightInit)
     {
@@ -2712,9 +2935,9 @@ void mcpwmOutput()
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_A, couplerServoMicros);
   }
 
+#ifdef SERVO_DEBUG // can slow down the playback loop!
   // Print servo signal debug infos **********************
   static unsigned long printServoMillis;
-#ifdef SERVO_DEBUG // can slow down the playback loop!
   if (millis() - printServoMillis > 1000)
   { // Every 1000ms
     printServoMillis = millis();
@@ -2725,10 +2948,6 @@ void mcpwmOutput()
 
 #if defined MODE2_WINCH
     Serial.printf("CH3 (winch)    :  %i µS, %f°\n", winchServoMicros, us2degree(winchServoMicros));
-#endif
-
-#if defined CH3_BEACON
-    Serial.printf("CH3 (beacon)    :  %i µS, %f°\n", beaconServoMicros, us2degree(beaconServoMicros));
 #endif
 
     Serial.printf("CH4 (5th wheel):  %i µS, %.2f°\n", couplerServoMicros, us2degree(couplerServoMicros));
@@ -2988,7 +3207,7 @@ void mapThrottle()
   }
 
   // Mixing both sides together (take the bigger value)
-  currentThrottle = max(currentThrottleLR[2], currentThrottleLR[3]);
+  currentThrottle = max(currentThrottleLR[ GEARBOX ], currentThrottleLR[ THROTTLE ]);
 
   // Print debug infos
   static unsigned long printTrackedMillis;
@@ -2998,8 +3217,8 @@ void mapThrottle()
     printTrackedMillis = millis();
 
     Serial.printf("TRACKED DEBUG:\n");
-    Serial.printf("currentThrottleLR[2]: %i\n", currentThrottleLR[2]);
-    Serial.printf("currentThrottleLR[3]: %i\n", currentThrottleLR[3]);
+    Serial.printf("currentThrottleLR[ GEARBOX ]: %i\n", currentThrottleLR[ GEARBOX ]);
+    Serial.printf("currentThrottleLR[ THROTTLE ]: %i\n", currentThrottleLR[ THROTTLE ]);
     Serial.printf("currentThrottle: %i\n", currentThrottle);
   }
 #endif // TRACKED_DEBUG
@@ -3011,9 +3230,9 @@ void mapThrottle()
   static uint8_t rpmLowering;
 
   // calculate a throttle value from the pulsewidth signal (forward only)
-  if (pulseWidth[3] > pulseMaxNeutral[3])
+  if (pulseWidth[ THROTTLE ] > pulseMaxNeutral[ THROTTLE ])
   {
-    currentThrottle = map(pulseWidth[3], pulseMaxNeutral[3], pulseMax[3], 0, (500 - rpmLowering));
+    currentThrottle = map(pulseWidth[ THROTTLE ], pulseMaxNeutral[ THROTTLE ], pulseMax[ THROTTLE ], 0, (500 - rpmLowering));
   }
   else
   {
@@ -3021,7 +3240,7 @@ void mapThrottle()
   }
 
   // Engine on / off via 3 position switch
-  if (pulseWidth[3] < 1200 && currentRpm < 50)
+  if (pulseWidth[ THROTTLE ] < 1200 && currentRpm < 50)
   { // Off
     engineInit = true;
     engineOn = false;
@@ -3034,7 +3253,7 @@ void mapThrottle()
   }
 
   // Engine RPM lowering, if hydraulic not used for 5s
-  if (hydraulicLoad > 1 || pulseWidth[3] < pulseMaxNeutral[3])
+  if (hydraulicLoad > 1 || pulseWidth[ THROTTLE ] < pulseMaxNeutral[ THROTTLE ])
     rpmLoweringMillis = millis();
   if (millis() - rpmLoweringMillis > 5000)
     rpmLowering = 250; // Medium RPM
@@ -3048,9 +3267,9 @@ void mapThrottle()
   clutchEngagingPoint = 500;
 
   // calculate a throttle value from the pulsewidth signal (forward only, throttle zero @1000)
-  if (pulseWidth[3] > 1100)
+  if (pulseWidth[ THROTTLE ] > 1100)
   {
-    currentThrottle = map(pulseWidth[3], 1100, 2000, 0, 500);
+    currentThrottle = map(pulseWidth[ THROTTLE ], 1100, 2000, 0, 500);
   }
   else
   {
@@ -3060,21 +3279,21 @@ void mapThrottle()
 #else // Normal mode ---------------------------------------------------------------------------
 
   // check if the pulsewidth looks like a servo pulse
-  if (pulseWidth[3] > pulseMinLimit[3] && pulseWidth[3] < pulseMaxLimit[3])
+  if (pulseWidth[ THROTTLE ] > pulseMinLimit[ THROTTLE ] && pulseWidth[ THROTTLE ] < pulseMaxLimit[ THROTTLE ])
   {
-    if (pulseWidth[3] < pulseMin[3])
-      pulseWidth[3] = pulseMin[3]; // Constrain the value
-    if (pulseWidth[3] > pulseMax[3])
-      pulseWidth[3] = pulseMax[3];
+    if (pulseWidth[ THROTTLE ] < pulseMin[ THROTTLE ])
+      pulseWidth[ THROTTLE ] = pulseMin[ THROTTLE ]; // Constrain the value
+    if (pulseWidth[ THROTTLE ] > pulseMax[ THROTTLE ])
+      pulseWidth[ THROTTLE ] = pulseMax[ THROTTLE ];
 
     // calculate a throttle value from the pulsewidth signal
-    if (pulseWidth[3] > pulseMaxNeutral[3])
+    if (pulseWidth[ THROTTLE ] > pulseMaxNeutral[ THROTTLE ])
     {
-      currentThrottle = map(pulseWidth[3], pulseMaxNeutral[3], pulseMax[3], 0, 500);
+      currentThrottle = map(pulseWidth[ THROTTLE ], pulseMaxNeutral[ THROTTLE ], pulseMax[ THROTTLE ], 0, 500);
     }
-    else if (pulseWidth[3] < pulseMinNeutral[3])
+    else if (pulseWidth[ THROTTLE ] < pulseMinNeutral[ THROTTLE ])
     {
-      currentThrottle = map(pulseWidth[3], pulseMinNeutral[3], pulseMin[3], 0, 500);
+      currentThrottle = map(pulseWidth[ THROTTLE ], pulseMinNeutral[ THROTTLE ], pulseMin[ THROTTLE ], 0, 500);
     }
     else
     {
@@ -3100,7 +3319,6 @@ void mapThrottle()
 
   // As a base for some calculations below, fade the current throttle to make it more natural
   static unsigned long throttleFaderMicros;
-  static boolean blowoffLock;
   if (micros() - throttleFaderMicros > 500)
   { // Every 0.5ms
     throttleFaderMicros = micros();
@@ -3197,13 +3415,12 @@ void mapThrottle()
 
   // Tire squealing ----
   uint8_t steeringAngle = 0;
-  uint8_t brakeSquealVolume = 0;
 
   // Cornering squealing
-  if (pulseWidth[1] < 1500)
-    steeringAngle = map(pulseWidth[1], 1000, 1500, 100, 0);
-  else if (pulseWidth[1] > 1500)
-    steeringAngle = map(pulseWidth[1], 1500, 2000, 0, 100);
+  if (pulseWidth[ STEERING ] < 1500)
+    steeringAngle = map(pulseWidth[ STEERING ], 1000, 1500, 100, 0);
+  else if (pulseWidth[ STEERING ] > 1500)
+    steeringAngle = map(pulseWidth[ STEERING ], 1500, 2000, 0, 100);
   else
     steeringAngle = 0;
 
@@ -3234,7 +3451,6 @@ void engineMassSimulation()
   uint16_t converterSlip;
   static unsigned long throtMillis;
   static unsigned long wastegateMillis;
-  static unsigned long blowoffMillis;
   uint8_t timeBase;
 
 #ifdef SUPER_SLOW
@@ -3381,6 +3597,8 @@ void engineMassSimulation()
   }
 
 #if defined JAKEBRAKE_ENGINE_SLOWDOWN && defined JAKE_BRAKE_SOUND
+  static unsigned long blowoffMillis;
+
   // Use jake brake to slow down engine while releasing throttle in neutral or during upshifting while applying throttle
   // for some vehicles like Volvo FH open pipe. See example: https://www.youtube.com/watch?v=MU1iwzl33Zw&list=LL&index=4
   if (!wastegateTrigger)
@@ -3817,6 +4035,10 @@ void shaker()
 
 void gearboxDetection()
 {
+#if defined TRACKED_MODE or defined STEAM_LOCOMOTIVE_MODE // CH2 is used for left throttle in TRACKED_MODE --------------------------------
+  selectedGear = 2;
+
+#else // only active, if not in TRACKED_MODE -------------------------------------------------------------
 
   static uint8_t previousGear = 1;
   static bool previousReverse;
@@ -3826,10 +4048,6 @@ void gearboxDetection()
   static unsigned long downShiftingMillis;
   static unsigned long lastShiftingMillis; // This timer is used to prevent transmission from oscillating!
 
-#if defined TRACKED_MODE or defined STEAM_LOCOMOTIVE_MODE // CH2 is used for left throttle in TRACKED_MODE --------------------------------
-  selectedGear = 2;
-
-#else // only active, if not in TRACKED_MODE -------------------------------------------------------------
 
 #if defined OVERDRIVE && defined VIRTUAL_3_SPEED // Additional 4th gear mode for virtual 3 speed ********************************
   if (!crawlerMode)
@@ -3860,9 +4078,9 @@ void gearboxDetection()
 
 #if not defined VIRTUAL_16_SPEED_SEQUENTIAL && not defined SEMI_AUTOMATIC // 3 gears, selected by 3 position switch **************
   // Gear detection
-  if (pulseWidth[2] > 1700)
+  if (pulseWidth[ GEARBOX ] > 1700)
     selectedGear = 3;
-  else if (pulseWidth[2] < 1300)
+  else if (pulseWidth[ GEARBOX ] < 1300)
     selectedGear = 1;
   else
     selectedGear = 2;
@@ -3871,17 +4089,17 @@ void gearboxDetection()
 #endif                                                                    // End of manual 3 speed *************************************************************************************************
 
 #if defined VIRTUAL_16_SPEED_SEQUENTIAL // 16 gears, selected by up / down impulses *********************************************
-  if (pulseWidth[2] > 1700 && selectedGear < 16 && !sequentialLock)
+  if (pulseWidth[ GEARBOX ] > 1700 && selectedGear < 16 && !sequentialLock)
   {
     sequentialLock = true;
     selectedGear++;
   }
-  else if (pulseWidth[2] < 1300 && selectedGear > 1 && !sequentialLock)
+  else if (pulseWidth[ GEARBOX ] < 1300 && selectedGear > 1 && !sequentialLock)
   {
     sequentialLock = true;
     selectedGear--;
   }
-  if (pulseWidth[2] > 1400 && pulseWidth[2] < 1600)
+  if (pulseWidth[ GEARBOX ] > 1400 && pulseWidth[ GEARBOX ] < 1600)
     sequentialLock = false;
 #endif                                  // End of VIRTUAL_16_SPEED_SEQUENTIAL *************************************************************************************
 
@@ -4066,9 +4284,9 @@ uint16_t escRampTime;
 int8_t pulse()
 { // Throttle direction
   int8_t pulse;
-  if (pulseWidth[3] > pulseMaxNeutral[3] && pulseWidth[3] < pulseMaxLimit[3])
+  if (pulseWidth[ THROTTLE ] > pulseMaxNeutral[ THROTTLE ] && pulseWidth[ THROTTLE ] < pulseMaxLimit[ THROTTLE ])
     pulse = 1; // 1 = Forward
-  else if (pulseWidth[3] < pulseMinNeutral[3] && pulseWidth[3] > pulseMinLimit[3])
+  else if (pulseWidth[ THROTTLE ] < pulseMinNeutral[ THROTTLE ] && pulseWidth[ THROTTLE ] > pulseMinLimit[ THROTTLE ])
     pulse = -1; // -1 = Backwards
   else
     pulse = 0; // 0 = Neutral
@@ -4077,9 +4295,9 @@ int8_t pulse()
 int8_t escPulse()
 { // ESC direction
   int8_t escPulse;
-  if (escPulseWidth > pulseMaxNeutral[3] && escPulseWidth < pulseMaxLimit[3])
+  if (escPulseWidth > pulseMaxNeutral[ THROTTLE ] && escPulseWidth < pulseMaxLimit[ THROTTLE ])
     escPulse = 1; // 1 = Forward
-  else if (escPulseWidth < pulseMinNeutral[3] && escPulseWidth > pulseMinLimit[3])
+  else if (escPulseWidth < pulseMinNeutral[ THROTTLE ] && escPulseWidth > pulseMinLimit[ THROTTLE ])
     escPulse = -1; // -1 = Backwards
   else
     escPulse = 0; // 0 = Neutral
@@ -4185,27 +4403,32 @@ void esc()
   if (millis() - lastStateTime > 300)
   { // Print the data every 300ms
     lastStateTime = millis();
-    Serial.printf("ESC_DEBUG:\n");
-    Serial.printf("driveState:            %i\n", driveState);
-    Serial.printf("pulse():               %i\n", pulse());
-    Serial.printf("escPulse():            %i\n", escPulse());
-    Serial.printf("brakeDetect:           %s\n", brakeDetect ? "true" : "false");
-    Serial.printf("escPulseMin:           %i\n", escPulseMin);
-    Serial.printf("escPulseMinNeutral:    %i\n", escPulseMinNeutral);
-    Serial.printf("escPulseMaxNeutral:    %i\n", escPulseMaxNeutral);
-    Serial.printf("escPulseMax:           %i\n", escPulseMax);
-    Serial.printf("brakeRampRate:         %i\n", brakeRampRate);
-    Serial.printf("lowRange:              %s\n", lowRange ? "true" : "false");
-    Serial.printf("currentRpm:            %i\n", currentRpm);
-    Serial.printf("escPulseWidth:         %i\n", escPulseWidth);
-    Serial.printf("escPulseWidthOut:      %i\n", escPulseWidthOut);
-    Serial.printf("escSignal:             %i\n", escSignal);
-    Serial.printf("motorDriverDuty:       %i\n", motorDriverDuty);
-    Serial.printf("currentSpeed:          %i\n", currentSpeed);
-    Serial.printf("speedLimit:            %i\n", speedLimit);
-    Serial.printf("batteryProtection:     %s\n", batteryProtection ? "true" : "false");
-    Serial.printf("batteryVoltage:        %.2f\n", batteryVoltage);
-    Serial.printf("--------------------------------------\n");
+    // Serial.printf("ESC_DEBUG:\n");
+    Serial.printf(">Robot state:           %i\n", robot.state);
+    Serial.printf(">driveState:            %i\n", driveState);
+    Serial.printf(">pulse():               %i\n", pulse());
+    Serial.printf(">escPulse():            %i\n", escPulse());
+    Serial.printf(">brakeDetect:           %i\n", brakeDetect ? 1 : 0);
+    Serial.printf(">escPulseMin:           %i\n", escPulseMin);
+    Serial.printf(">escPulseMinNeutral:    %i\n", escPulseMinNeutral);
+    Serial.printf(">escPulseMaxNeutral:    %i\n", escPulseMaxNeutral);
+    Serial.printf(">escPulseMax:           %i\n", escPulseMax);
+    Serial.printf(">brakeRampRate:         %i\n", brakeRampRate);
+    // Serial.printf("lowRange:              %s\n", lowRange ? "true" : "false");
+    Serial.printf(">currentRpm:            %i\n", currentRpm);
+    Serial.printf(">TR pulseWidthRaw:      %i\n", pulseWidthRaw[ THROTTLE ]);
+    Serial.printf(">TR pulseWidth:         %i\n", pulseWidth[ THROTTLE ]);
+    Serial.printf(">escPulseWidth:         %i\n", escPulseWidth);
+    Serial.printf(">escPulseWidthOut:      %i\n", escPulseWidthOut);
+    Serial.printf(">escSignal:             %i\n", escSignal);
+    Serial.printf(">motorDriverDuty:       %i\n", motorDriverDuty);
+    Serial.printf(">currentSpeed:          %i\n", currentSpeed);
+    Serial.printf(">speedLimit:            %i\n", speedLimit);
+    Serial.printf(">Failsafe state:        %i\n", failSafe ? 1 : 0);
+
+    // Serial.printf("batteryProtection:     %s\n", batteryProtection ? "true" : "false");
+    // Serial.printf("batteryVoltage:        %.2f\n", batteryVoltage);
+    // Serial.printf("--------------------------------------\n");
   }
 #endif // ESC_DEBUG
 
@@ -4221,7 +4444,7 @@ void esc()
       escIsBraking = false;
       escInReverse = false;
       escIsDriving = false;
-      escPulseWidth = pulseZero[3]; // ESC to neutral position
+      escPulseWidth = pulseZero[ THROTTLE ]; // ESC to neutral position
 #ifdef VIRTUAL_16_SPEED_SEQUENTIAL
       selectedGear = 1;
 #endif
@@ -4236,14 +4459,14 @@ void esc()
       escIsBraking = false;
       escInReverse = false;
       escIsDriving = true;
-      if (escPulseWidth < pulseWidth[3] && currentSpeed < speedLimit && !batteryProtection)
+      if (escPulseWidth < pulseWidth[ THROTTLE ] && currentSpeed < speedLimit && !batteryProtection)
       {
         if (escPulseWidth >= escPulseMaxNeutral)
           escPulseWidth += (driveRampRate * driveRampGain); // Faster
         else
           escPulseWidth = escPulseMaxNeutral; // Initial boost
       }
-      if ((escPulseWidth > pulseWidth[3] || batteryProtection) && escPulseWidth > pulseZero[3])
+      if ((escPulseWidth > pulseWidth[ THROTTLE ] || batteryProtection) && escPulseWidth > pulseZero[ THROTTLE ])
         escPulseWidth -= (driveRampRate * driveRampGain); // Slower
 
       if (gearUpShiftingPulse && shiftingAutoThrottle && !automatic && !doubleClutch)
@@ -4253,7 +4476,7 @@ void esc()
                                                                            // escPulseWidth -= currentSpeed * 40 / 100; // Synchronize engine speed TODO
 #endif
         gearUpShiftingPulse = false;
-        escPulseWidth = constrain(escPulseWidth, pulseZero[3], pulseMax[3]);
+        escPulseWidth = constrain(escPulseWidth, pulseZero[ THROTTLE ], pulseMax[ THROTTLE ]);
       }
       if (gearDownShiftingPulse && shiftingAutoThrottle && !automatic && !doubleClutch)
       {                                                                    // increasing RPM, if shifting down transmission
@@ -4262,7 +4485,7 @@ void esc()
                                                                            // escPulseWidth += currentSpeed;// * 40 / 100; // Synchronize engine speed TODO
 #endif
         gearDownShiftingPulse = false;
-        escPulseWidth = constrain(escPulseWidth, pulseZero[3], pulseMax[3]);
+        escPulseWidth = constrain(escPulseWidth, pulseZero[ THROTTLE ], pulseMax[ THROTTLE ]);
       }
 
       if (pulse() == -1 && escPulse() == 1)
@@ -4277,12 +4500,12 @@ void esc()
       escIsBraking = true;
       escInReverse = false;
       escIsDriving = false;
-      if (escPulseWidth > pulseZero[3])
+      if (escPulseWidth > pulseZero[ THROTTLE ])
         escPulseWidth -= brakeRampRate; // brake with variable deceleration
-      if (escPulseWidth < pulseZero[3] + brakeMargin && pulse() == -1)
-        escPulseWidth = pulseZero[3] + brakeMargin; // Don't go completely back to neutral, if brake applied
-      if (escPulseWidth < pulseZero[3] && pulse() == 0)
-        escPulseWidth = pulseZero[3]; // Overflow prevention!
+      if (escPulseWidth < pulseZero[ THROTTLE ] + brakeMargin && pulse() == -1)
+        escPulseWidth = pulseZero[ THROTTLE ] + brakeMargin; // Don't go completely back to neutral, if brake applied
+      if (escPulseWidth < pulseZero[ THROTTLE ] && pulse() == 0)
+        escPulseWidth = pulseZero[ THROTTLE ]; // Overflow prevention!
 
       if (pulse() == 0 && escPulse() == 1 && !neutralGear)
       {
@@ -4300,14 +4523,14 @@ void esc()
       escIsBraking = false;
       escInReverse = true;
       escIsDriving = true;
-      if (escPulseWidth > pulseWidth[3] && currentSpeed < speedLimit && !batteryProtection)
+      if (escPulseWidth > pulseWidth[ THROTTLE ] && currentSpeed < speedLimit && !batteryProtection)
       {
         if (escPulseWidth <= escPulseMinNeutral)
           escPulseWidth -= (driveRampRate * driveRampGain); // Faster
         else
           escPulseWidth = escPulseMinNeutral; // Initial boost
       }
-      if ((escPulseWidth < pulseWidth[3] || batteryProtection) && escPulseWidth < pulseZero[3])
+      if ((escPulseWidth < pulseWidth[ THROTTLE ] || batteryProtection) && escPulseWidth < pulseZero[ THROTTLE ])
         escPulseWidth += (driveRampRate * driveRampGain); // Slower
 
       if (gearUpShiftingPulse && shiftingAutoThrottle && !automatic && !doubleClutch)
@@ -4316,7 +4539,7 @@ void esc()
         escPulseWidth += currentSpeed / 4;                                 // Synchronize engine speed
 #endif
         gearUpShiftingPulse = false;
-        escPulseWidth = constrain(escPulseWidth, pulseMin[3], pulseZero[3]);
+        escPulseWidth = constrain(escPulseWidth, pulseMin[ THROTTLE ], pulseZero[ THROTTLE ]);
       }
       if (gearDownShiftingPulse && shiftingAutoThrottle && !automatic && !doubleClutch)
       {                                                                    // increasing RPM, if shifting down transmission
@@ -4324,7 +4547,7 @@ void esc()
         escPulseWidth -= 50;                                               // Synchronize engine speed
 #endif
         gearDownShiftingPulse = false;
-        escPulseWidth = constrain(escPulseWidth, pulseMin[3], pulseZero[3]);
+        escPulseWidth = constrain(escPulseWidth, pulseMin[ THROTTLE ], pulseZero[ THROTTLE ]);
       }
 
       if (pulse() == 1 && escPulse() == -1)
@@ -4339,12 +4562,12 @@ void esc()
       escIsBraking = true;
       escInReverse = true;
       escIsDriving = false;
-      if (escPulseWidth < pulseZero[3])
+      if (escPulseWidth < pulseZero[ THROTTLE ])
         escPulseWidth += brakeRampRate; // brake with variable deceleration
-      if (escPulseWidth > pulseZero[3] - brakeMargin && pulse() == 1)
-        escPulseWidth = pulseZero[3] - brakeMargin; // Don't go completely back to neutral, if brake applied
-      if (escPulseWidth > pulseZero[3] && pulse() == 0)
-        escPulseWidth = pulseZero[3]; // Overflow prevention!
+      if (escPulseWidth > pulseZero[ THROTTLE ] - brakeMargin && pulse() == 1)
+        escPulseWidth = pulseZero[ THROTTLE ] - brakeMargin; // Don't go completely back to neutral, if brake applied
+      if (escPulseWidth > pulseZero[ THROTTLE ] && pulse() == 0)
+        escPulseWidth = pulseZero[ THROTTLE ]; // Overflow prevention!
 
       if (pulse() == 0 && escPulse() == -1 && !neutralGear)
       {
@@ -4423,13 +4646,13 @@ void esc()
 #endif
 
     // Calculate a speed value from the pulsewidth signal (used as base for engine sound RPM while clutch is engaged)
-    if (escPulseWidth > pulseMaxNeutral[3])
+    if (escPulseWidth > pulseMaxNeutral[ THROTTLE ])
     {
-      currentSpeed = map(escPulseWidth, pulseMaxNeutral[3], pulseMax[3], 0, 500);
+      currentSpeed = map(escPulseWidth, pulseMaxNeutral[ THROTTLE ], pulseMax[ THROTTLE ], 0, 500);
     }
-    else if (escPulseWidth < pulseMinNeutral[3])
+    else if (escPulseWidth < pulseMinNeutral[ THROTTLE ])
     {
-      currentSpeed = map(escPulseWidth, pulseMinNeutral[3], pulseMin[3], 0, 500);
+      currentSpeed = map(escPulseWidth, pulseMinNeutral[ THROTTLE ], pulseMin[ THROTTLE ], 0, 500);
     }
     else
       currentSpeed = 0;
@@ -4459,14 +4682,14 @@ float batteryVolts()
   }
 
   raw[5] = raw[4]; // Move array content, then add latest measurement (averaging)
-  raw[4] = raw[3];
-  raw[3] = raw[2];
+  raw[4] = raw[ THROTTLE ];
+  raw[ THROTTLE ] = raw[2];
   raw[2] = raw[1];
   raw[1] = raw[0];
 
   raw[0] = battery.readVoltage(); // read analog input
 
-  float voltage = (raw[0] + raw[1] + raw[2] + raw[3] + raw[4] + raw[5]) / 6 * VOLTAGE_CALIBRATION;
+  float voltage = (raw[0] + raw[1] + raw[2] + raw[ THROTTLE ] + raw[4] + raw[5]) / 6 * VOLTAGE_CALIBRATION;
   return voltage;
 }
 
@@ -4620,21 +4843,21 @@ void triggerIndicators()
 
 #ifdef AUTO_INDICATORS // Automatic, steering triggered indicators ********
   // detect left indicator trigger -------------
-  if (pulseWidth[1] > (1500 + indicatorOn))
+  if (pulseWidth[ STEERING ] > (1500 + indicatorOn))
   {
     L = true;
     R = false;
   }
-  if (pulseWidth[1] < (1500 + indicatorOn / 3))
+  if (pulseWidth[ STEERING ] < (1500 + indicatorOn / 3))
     L = false;
 
   // detect right indicator trigger -------------
-  if (pulseWidth[1] < (1500 - indicatorOn))
+  if (pulseWidth[ STEERING ] < (1500 - indicatorOn))
   {
     R = true;
     L = false;
   }
-  if (pulseWidth[1] > (1500 - indicatorOn / 3))
+  if (pulseWidth[ STEERING ] > (1500 - indicatorOn / 3))
     R = false;
 
 #else // Manually triggered indicators ********
@@ -4659,16 +4882,16 @@ void triggerIndicators()
   // Reset by steering -------------
   static int steeringOld;
 
-  if (pulseWidth[1] < steeringOld - 50)
+  if (pulseWidth[ STEERING ] < steeringOld - 50)
   {
     L = false;
-    steeringOld = pulseWidth[1];
+    steeringOld = pulseWidth[ STEERING ];
   }
 
-  if (pulseWidth[1] > steeringOld + 50)
+  if (pulseWidth[ STEERING ] > steeringOld + 50)
   {
     R = false;
-    steeringOld = pulseWidth[1];
+    steeringOld = pulseWidth[ STEERING ];
   }
 
 #endif // End of manually triggered indicators
@@ -4953,7 +5176,6 @@ void updateDashboard()
   static bool startAnimationFinished = false;
 
   static uint16_t rpmNeedle = 0;
-  static uint16_t speedNeedle = 0;
   static uint16_t fuelNeedle = 0;
   static uint16_t adblueNeedle = 0;
 
@@ -5099,7 +5321,7 @@ void updateRGBLEDs()
   { // Every 20 ms
     lastNeopixelTime = millis();
 
-    uint8_t hue = map(pulseWidth[1], 1000, 2000, 0, 255);
+    uint8_t hue = map(pulseWidth[ STEERING ], 1000, 2000, 0, 255);
 
     rgbLEDs[0] = CHSV(hue, hue < 255 ? 255 : 0, hue > 0 ? 255 : 0);
     rgbLEDs[1] = CRGB::Red;
@@ -5331,8 +5553,8 @@ void excavatorControl()
   static uint16_t hydraulicFlowVolumeInternalUndelayed;
   static uint16_t trackRattleVolumeInternal[9];
   static uint16_t trackRattleVolumeInternalUndelayed;
-  static uint16_t lastBucketPulseWidth = pulseWidth[1];
-  static uint16_t lastDipperPulseWidth = pulseWidth[2];
+  static uint16_t lastBucketPulseWidth = pulseWidth[ STEERING ];
+  static uint16_t lastDipperPulseWidth = pulseWidth[ GEARBOX ];
 
   if (millis() - lastFrameTime > 4)
   { // 3
@@ -5340,20 +5562,20 @@ void excavatorControl()
 
     // Calculate zylinder speed and engine RPM dependent hydraulic pump volume ----
     // Bucket ---
-    if (pulseWidth[1] > pulseMaxNeutral[1])
-      hydraulicPumpVolumeInternal[1] = map(pulseWidth[1], pulseMaxNeutral[1], pulseMax[1], 0, 100);
-    else if (pulseWidth[1] < pulseMinNeutral[1])
-      hydraulicPumpVolumeInternal[1] = map(pulseWidth[1], pulseMinNeutral[1], pulseMin[1], 0, 100);
+    if (pulseWidth[ STEERING ] > pulseMaxNeutral[ STEERING ])
+      hydraulicPumpVolumeInternal[ STEERING ] = map(pulseWidth[ STEERING ], pulseMaxNeutral[ STEERING ], pulseMax[ STEERING ], 0, 100);
+    else if (pulseWidth[ STEERING ] < pulseMinNeutral[ STEERING ])
+      hydraulicPumpVolumeInternal[ STEERING ] = map(pulseWidth[ STEERING ], pulseMinNeutral[ STEERING ], pulseMin[ STEERING ], 0, 100);
     else
-      hydraulicPumpVolumeInternal[1] = 0;
+      hydraulicPumpVolumeInternal[ STEERING ] = 0;
 
     // Dipper ---
-    if (pulseWidth[2] > pulseMaxNeutral[2])
-      hydraulicPumpVolumeInternal[2] = map(pulseWidth[2], pulseMaxNeutral[2], pulseMax[2], 0, 100);
-    else if (pulseWidth[2] < pulseMinNeutral[2])
-      hydraulicPumpVolumeInternal[2] = map(pulseWidth[2], pulseMinNeutral[2], pulseMin[2], 0, 100);
+    if (pulseWidth[ GEARBOX ] > pulseMaxNeutral[ GEARBOX ])
+      hydraulicPumpVolumeInternal[ GEARBOX ] = map(pulseWidth[ GEARBOX ], pulseMaxNeutral[ GEARBOX ], pulseMax[ GEARBOX ], 0, 100);
+    else if (pulseWidth[ GEARBOX ] < pulseMinNeutral[ GEARBOX ])
+      hydraulicPumpVolumeInternal[ GEARBOX ] = map(pulseWidth[ GEARBOX ], pulseMinNeutral[ GEARBOX ], pulseMin[ GEARBOX ], 0, 100);
     else
-      hydraulicPumpVolumeInternal[2] = 0;
+      hydraulicPumpVolumeInternal[ GEARBOX ] = 0;
 
     // Boom (upwards only) ---
     if (pulseWidth[5] < pulseMinNeutral[5])
@@ -5369,7 +5591,7 @@ void excavatorControl()
     else
       hydraulicPumpVolumeInternal[8] = 0;
 
-    hydraulicPumpVolumeInternalUndelayed = constrain(hydraulicPumpVolumeInternal[1] + hydraulicPumpVolumeInternal[2] + hydraulicPumpVolumeInternal[5] + hydraulicPumpVolumeInternal[8], 0, 100) * map(currentRpm, 0, 500, 30, 100) / 100;
+    hydraulicPumpVolumeInternalUndelayed = constrain(hydraulicPumpVolumeInternal[ STEERING ] + hydraulicPumpVolumeInternal[ GEARBOX ] + hydraulicPumpVolumeInternal[5] + hydraulicPumpVolumeInternal[8], 0, 100) * map(currentRpm, 0, 500, 30, 100) / 100;
 
     if (hydraulicPumpVolumeInternalUndelayed < hydraulicPumpVolume)
       hydraulicPumpVolume--;
@@ -5425,18 +5647,18 @@ void excavatorControl()
     if (engineRunning && currentRpm > 400)
     {
       // If bucket stick is moved fast
-      if (abs(pulseWidth[1] - lastBucketPulseWidth > 100))
+      if (abs(pulseWidth[ STEERING ] - lastBucketPulseWidth > 100))
       {
         bucketRattleTrigger = true;
       }
-      lastBucketPulseWidth = pulseWidth[1];
+      lastBucketPulseWidth = pulseWidth[ STEERING ];
 
       // If dipper stick is moved fast
-      if (abs(pulseWidth[2] - lastDipperPulseWidth > 100))
+      if (abs(pulseWidth[ GEARBOX ] - lastDipperPulseWidth > 100))
       {
         bucketRattleTrigger = true;
       }
-      lastDipperPulseWidth = pulseWidth[2];
+      lastDipperPulseWidth = pulseWidth[ GEARBOX ];
     }
   }
 }
@@ -5469,7 +5691,7 @@ void steamLocomotiveControl()
 // TRAILER CONTROL (ESP NOW)
 // =======================================================================================================
 //
-
+#if defined ENABLE_TRAILER_CONTROL
 void trailerControl()
 {
 #if defined ENABLE_WIRELESS
@@ -5556,11 +5778,12 @@ void trailerControl()
 
       // This will confirm if a message was SENT successfully (callback will later check if RECEIVED and by whom).
       Serial.printf("ESP-NOW data sent: %s\n", result == ESP_NOW_SEND_SUCCESS ? "OK" : "FAILED");
-#endif
+#endif // ESPNOW_DEBUG
     }
   }
-#endif
+#endif // ENABLE_WIRELESS
 }
+#endif // ENABLE_TRAILER_CONTROL
 
 //
 // =======================================================================================================
@@ -5587,6 +5810,8 @@ void loop()
   readPpmCommands(); // PPM communication (pin 36)
   mcpwmOutput();     // PWM servo signal output
 
+#elif defined ROBOT_CONTROLLER
+  readRobotCommands();
 #else
   // measure RC signals mark space ratio
   readPwmSignals();
@@ -5633,8 +5858,10 @@ void loop()
   updateRGBLEDs();
 #endif
 
+#if defined ENABLE_TRAILER_CONTROL
   // Trailer control, using ESP NOW
   trailerControl();
+#endif
 
   // Configuration website
   webInterface();

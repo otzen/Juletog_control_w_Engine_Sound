@@ -5,7 +5,7 @@
    The trailer is using ESP-NOW. This means it's communicating, using the 2.4GHz antenna in the ESP32
    You can use a 2nd, identical controller in your trailer. Of course, it doesn't need an amplifier or a receiver.
 */
-
+// #define ENABLE_TRAILER_CONTROL  <------- Uncomment to enable trailer control using ESP-NOW
 // #define TRAILER_LIGHTS_TRAILER_PRESENCE_SWITCH_DEPENDENT // wireless trailer lights are swiched off, if truck mounted trailer presence switch on pin 32 is closed.
 
 // MAC addresses for communication with trailers:

@@ -1,4 +1,6 @@
 {
     "C_Cpp.dimInactiveRegions": true,
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "C_Cpp.inactiveRegionOpacity": 0.35,
+    "C_Cpp.inactiveRegionForegroundColor": "#444444"
 }
